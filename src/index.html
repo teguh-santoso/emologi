@@ -1,0 +1,761 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Webcam Interface with API</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        .thumbnail {
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: #64748b;
+            font-weight: bold;
+        }
+        .button-disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .button-enabled {
+            transition: all 0.2s ease;
+        }
+        .button-enabled:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+        .button-active {
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.5);
+        }
+        .progress-bar {
+            height: 4px;
+            background-color: #e2e8f0;
+            border-radius: 2px;
+            overflow: hidden;
+        }
+        .progress-fill {
+            height: 100%;
+            background-color: #3b82f6;
+            transition: width 0.3s ease;
+        }
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 12px 20px;
+            border-radius: 8px;
+            background-color: #3b82f6;
+            color: white;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            transform: translateY(100px);
+            opacity: 0;
+            transition: all 0.3s ease;
+            z-index: 1000;
+        }
+        .toast.show {
+            transform: translateY(0);
+            opacity: 1;
+        }
+        .toast.error {
+            background-color: #ef4444;
+        }
+        .toast.success {
+            background-color: #10b981;
+        }
+        .log-container {
+            max-height: 200px;
+            overflow-y: auto;
+            border: 1px solid #e2e8f0;
+            border-radius: 0.5rem;
+            padding: 0.5rem;
+            background-color: #f8fafc;
+        }
+        .log-entry {
+            padding: 0.5rem;
+            border-bottom: 1px solid #e2e8f0;
+            font-family: monospace;
+            font-size: 0.875rem;
+        }
+        .log-entry:last-child {
+            border-bottom: none;
+        }
+        .log-timestamp {
+            color: #64748b;
+            margin-right: 0.5rem;
+        }
+        .log-success {
+            color: #10b981;
+        }
+        .log-error {
+            color: #ef4444;
+        }
+        .log-info {
+            color: #3b82f6;
+        }
+        .log-emotion {
+            color: #8b5cf6;
+            font-weight: bold;
+        }
+        .video-container {
+            position: relative;
+            width: 100%;
+            padding-bottom: 56.25%; /* 16:9 aspect ratio */
+            background-color: #f1f5f9;
+            border-radius: 0.5rem;
+            overflow: hidden;
+        }
+        .video-content {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        #webcamCanvas {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+        .api-settings {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease-out;
+        }
+        .api-settings.show {
+            max-height: 500px;
+        }
+        .session-name-badge {
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 12px;
+            z-index: 10;
+        }
+    </style>
+</head>
+
+<body class="bg-gray-100 min-h-screen flex flex-col items-center justify-center p-4">
+    <div class="max-w-4xl w-full bg-white rounded-xl shadow-lg overflow-hidden">
+        <div class="p-6">
+            <h1 class="text-3xl font-bold text-gray-800 mb-2 text-center">Webcam Interface with API</h1>
+            <p class="text-gray-600 text-center mb-6">Capture and send images to API every 5 seconds</p>
+
+            <div class="video-container mb-6">
+                <div class="video-content">
+                    <canvas id="webcamCanvas" class="thumbnail">
+                        Your browser does not support the canvas element.
+                    </canvas>
+                    <div id="sessionNameBadge" class="session-name-badge hidden"></div>
+                </div>
+                <div id="statusIndicator" class="absolute top-2 right-2 px-2 py-1 rounded-full text-xs font-semibold bg-gray-800 text-white">
+                    Ready
+                </div>
+                <div class="absolute bottom-2 left-2 right-2">
+                    <div class="progress-bar">
+                        <div id="captureProgress" class="progress-fill" style="width: 0%"></div>
+                    </div>
+                    <div id="apiStatus" class="text-xs text-gray-600 mt-1">Next capture in: <span id="countdown">5</span>s</div>
+                </div>
+            </div>
+
+            <div class="flex flex-wrap justify-center gap-4 mb-6">
+                <button id="startBtn" class="button-enabled bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg flex items-center gap-2">
+                    <i class="fas fa-play"></i>
+                    <span>Start</span>
+                </button>
+
+                <button id="pauseBtn" class="button-disabled bg-yellow-500 text-white px-6 py-3 rounded-lg flex items-center gap-2" disabled>
+                    <i class="fas fa-pause"></i>
+                    <span>Pause</span>
+                </button>
+
+                <button id="stopBtn" class="button-disabled bg-red-600 text-white px-6 py-3 rounded-lg flex items-center gap-2" disabled>
+                    <i class="fas fa-stop"></i>
+                    <span>Stop</span>
+                </button>
+
+                <button id="downloadBtn" class="button-disabled bg-green-600 text-white px-6 py-3 rounded-lg flex items-center gap-2" disabled>
+                    <i class="fas fa-download"></i>
+                    <span>Download Logs</span>
+                </button>
+
+                <button id="settingsBtn" class="bg-gray-600 hover:bg-gray-700 text-white px-6 py-3 rounded-lg flex items-center gap-2">
+                    <i class="fas fa-cog"></i>
+                    <span>Settings</span>
+                </button>
+            </div>
+
+            <div id="apiSettings" class="api-settings bg-gray-50 rounded-lg mb-6">
+                <div class="p-4">
+                    <h3 class="font-semibold text-gray-700 mb-2">API Settings</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label for="apiEndpoint" class="block text-sm font-medium text-gray-700 mb-1">API Endpoint</label>
+                            <input type="text" id="apiEndpoint" value="https://domainanda.com/analize" class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
+                        </div>
+                        <div>
+                            <label for="captureInterval" class="block text-sm font-medium text-gray-700 mb-1">Capture Interval (seconds)</label>
+                            <input type="number" id="captureInterval" value="5" min="1" class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
+                        </div>
+                        <div class="md:col-span-2">
+                            <label for="sessionName" class="block text-sm font-medium text-gray-700 mb-1">Session Name</label>
+                            <input type="text" id="sessionName" placeholder="Enter a name for this session" class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500">
+                            <p class="text-xs text-gray-500 mt-1">This name will be used for the log file</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-gray-50 p-4 rounded-lg">
+                <h3 class="font-semibold text-gray-700 mb-2">API Request Logs</h3>
+                <div id="logContainer" class="log-container">
+                    <div class="log-entry log-info">
+                        <span class="log-timestamp">[System]</span>
+                        <span>Waiting for first capture...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast" class="toast"></div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const canvas = document.getElementById('webcamCanvas');
+            const ctx = canvas.getContext('2d');
+            const startBtn = document.getElementById('startBtn');
+            const pauseBtn = document.getElementById('pauseBtn');
+            const stopBtn = document.getElementById('stopBtn');
+            const downloadBtn = document.getElementById('downloadBtn');
+            const settingsBtn = document.getElementById('settingsBtn');
+            const statusIndicator = document.getElementById('statusIndicator');
+            const captureProgress = document.getElementById('captureProgress');
+            const countdownElement = document.getElementById('countdown');
+            const apiStatusElement = document.getElementById('apiStatus');
+            const apiEndpointInput = document.getElementById('apiEndpoint');
+            const captureIntervalInput = document.getElementById('captureInterval');
+            const sessionNameInput = document.getElementById('sessionName');
+            const sessionNameBadge = document.getElementById('sessionNameBadge');
+            const apiSettings = document.getElementById('apiSettings');
+            const toast = document.getElementById('toast');
+            const logContainer = document.getElementById('logContainer');
+            
+            let stream = null;
+            let video = document.createElement('video');
+            let animationId = null;
+            let isPaused = false;
+            let captureInterval = 5; // seconds
+            let captureTimer = null;
+            let countdownTimer = null;
+            let timeLeft = captureInterval;
+            let isCapturing = false;
+            let videoWidth = 0;
+            let videoHeight = 0;
+            let currentSessionName = "";
+            let emotionLogs = []; // Store dominant_emotion results
+            
+            // Set canvas dimensions based on video aspect ratio
+            function setCanvasSize() {
+                const container = canvas.parentElement;
+                const containerWidth = container.clientWidth;
+                const containerHeight = container.clientHeight;
+                
+                if (videoWidth && videoHeight) {
+                    // Calculate aspect ratio
+                    const videoAspect = videoWidth / videoHeight;
+                    const containerAspect = containerWidth / containerHeight;
+                    
+                    let drawWidth, drawHeight;
+                    
+                    if (containerAspect > videoAspect) {
+                        // Container is wider than video (pillarbox)
+                        drawHeight = containerHeight;
+                        drawWidth = drawHeight * videoAspect;
+                    } else {
+                        // Container is taller than video (letterbox)
+                        drawWidth = containerWidth;
+                        drawHeight = drawWidth / videoAspect;
+                    }
+                    
+                    canvas.width = drawWidth;
+                    canvas.height = drawHeight;
+                } else {
+                    // No video stream yet, just set to container size
+                    canvas.width = containerWidth;
+                    canvas.height = containerHeight;
+                    
+                    // Draw thumbnail if no stream is active
+                    if (!stream) {
+                        drawThumbnail();
+                    }
+                }
+            }
+            
+            // Update session name badge
+            function updateSessionNameBadge() {
+                if (currentSessionName) {
+                    sessionNameBadge.textContent = currentSessionName;
+                    sessionNameBadge.classList.remove('hidden');
+                } else {
+                    sessionNameBadge.classList.add('hidden');
+                }
+            }
+            
+            // Draw thumbnail
+            function drawThumbnail() {
+                ctx.fillStyle = '#f1f5f9';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                
+                // Draw camera icon
+                const iconSize = Math.min(canvas.width, canvas.height) * 0.2;
+                ctx.fillStyle = '#94a3b8';
+                ctx.font = `bold ${iconSize}px Font Awesome`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('', canvas.width / 2, canvas.height / 2);
+                
+                // Draw text
+                ctx.fillStyle = '#64748b';
+                ctx.font = 'bold 24px Arial';
+                ctx.fillText('Click Start to begin', canvas.width / 2, canvas.height / 2 + iconSize);
+            }
+            
+            // Show toast message
+            function showToast(message, type = 'info') {
+                toast.textContent = message;
+                toast.className = 'toast';
+                toast.classList.add(type);
+                toast.classList.add('show');
+                
+                setTimeout(() => {
+                    toast.classList.remove('show');
+                }, 3000);
+            }
+            
+            // Add log entry
+            function addLogEntry(message, type = 'info') {
+                const now = new Date();
+                const timestamp = `[${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}]`;
+                
+                const logEntry = document.createElement('div');
+                logEntry.className = `log-entry log-${type}`;
+                logEntry.innerHTML = `<span class="log-timestamp">${timestamp}</span><span>${message}</span>`;
+                
+                logContainer.appendChild(logEntry);
+                
+                // Auto-scroll to bottom
+                logContainer.scrollTop = logContainer.scrollHeight;
+            }
+            
+            // Add emotion log entry
+            // Add emotion log entry
+function addEmotionLog(emotion) {
+    const now = new Date();
+    const timestamp = `[${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}]`;
+    const timestampcsv = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`;
+    
+    const logEntry = document.createElement('div');
+    logEntry.className = 'log-entry log-emotion';
+    logEntry.innerHTML = `<span class="log-timestamp">${timestamp}</span><span>Emotion: ${emotion}</span>`;
+    
+    logContainer.appendChild(logEntry);
+    emotionLogs.push(`${timestampcsv} , ${emotion}`);
+    
+    // Auto-scroll to bottom
+    logContainer.scrollTop = logContainer.scrollHeight;
+}
+            
+            // Update countdown display
+            function updateCountdown() {
+                countdownElement.textContent = timeLeft;
+                const progressPercent = ((captureInterval - timeLeft) / captureInterval) * 100;
+                captureProgress.style.width = `${progressPercent}%`;
+            }
+            
+            // Start countdown for next capture
+            function startCountdown() {
+                clearInterval(countdownTimer);
+                timeLeft = captureInterval;
+                updateCountdown();
+                
+                countdownTimer = setInterval(() => {
+                    timeLeft--;
+                    updateCountdown();
+                    
+                    if (timeLeft <= 0) {
+                        captureImage();
+                        timeLeft = captureInterval;
+                    }
+                }, 1000);
+            }
+            
+            // Capture image and send to API
+            async function captureImage() {
+    if (!stream || isPaused || isCapturing) return;
+    
+    isCapturing = true;
+    apiStatusElement.textContent = "Sending to API...";
+    
+    try {
+        // Capture current frame as base64
+        const imageData = canvas.toDataURL('image/jpeg', 0.8);
+        
+        // Create payload with format yang diminta
+        const payload = {
+            "img": [imageData]
+        };
+        
+        // Make API call
+        const response = await fetch(apiEndpointInput.value, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(payload)
+        });
+        
+        if (!response.ok) {
+            throw new Error(`API returned ${response.status} ${response.statusText}`);
+        }
+        
+        const responseData = await response.json();
+        console.log("Full API response:", responseData); // Untuk debugging
+        
+        // Check for dominant_emotion in response dengan struktur yang benar
+        if (responseData.results && responseData.results[0] && responseData.results[0][0]) {
+            const faceData = responseData.results[0][0];
+            if (faceData.dominant_emotion) {
+                addEmotionLog(faceData.dominant_emotion);
+            } else {
+                addEmotionLog("No emotion detected in face data");
+            }
+        } else {
+            addEmotionLog("No face detected in response");
+        }
+        
+    } catch (error) {
+        console.error('Error sending image to API:', error);
+        addEmotionLog("Error: " + error.message);
+    } finally {
+        isCapturing = false;
+        apiStatusElement.textContent = `Next capture in: ${timeLeft}s`;
+    }
+}
+            
+            // Download emotion logs as text file
+            function downloadEmotionLogs() {
+                if (emotionLogs.length === 0) {
+                    showToast('No emotion logs to download', 'error');
+                    return;
+                }
+                
+                const sessionName = currentSessionName || 'session';
+                const filename = `${sessionName}.csv`;
+                const content = emotionLogs.join('\n');
+                
+                const blob = new Blob([content], { type: 'text/plain' });
+                const url = URL.createObjectURL(blob);
+                
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                
+                addLogEntry(`Downloaded emotion logs as ${filename}`, 'success');
+            }
+            
+            // Initialize with thumbnail
+            setCanvasSize();
+            window.addEventListener('resize', setCanvasSize);
+            
+            // Toggle API settings visibility
+            settingsBtn.addEventListener('click', function() {
+                apiSettings.classList.toggle('show');
+                const icon = this.querySelector('i');
+                if (apiSettings.classList.contains('show')) {
+                    icon.className = 'fas fa-times';
+                    this.querySelector('span').textContent = 'Close';
+                } else {
+                    icon.className = 'fas fa-cog';
+                    this.querySelector('span').textContent = 'Settings';
+                }
+            });
+            
+            // Update session name when input changes
+            sessionNameInput.addEventListener('change', function() {
+                currentSessionName = this.value.trim();
+                updateSessionNameBadge();
+                addLogEntry(`Session name updated to: ${currentSessionName || 'Unnamed Session'}`, 'info');
+            });
+            
+            // Download button handler
+            downloadBtn.addEventListener('click', function() {
+                downloadEmotionLogs();
+            });
+            
+            // Enable/disable download button based on session state
+            function updateDownloadButtonState() {
+                // Enable download button only when paused or stopped
+                if (isPaused || !stream) {
+                    downloadBtn.disabled = false;
+                    downloadBtn.classList.add('button-enabled');
+                    downloadBtn.classList.remove('button-disabled');
+                } else {
+                    downloadBtn.disabled = true;
+                    downloadBtn.classList.add('button-disabled');
+                    downloadBtn.classList.remove('button-enabled');
+                }
+            }
+            
+            // Start webcam
+            startBtn.addEventListener('click', async function() {
+                try {
+                    statusIndicator.textContent = 'Starting...';
+                    statusIndicator.className = 'absolute top-2 right-2 px-2 py-1 rounded-full text-xs font-semibold bg-blue-600 text-white';
+                    
+                    // Get current session name
+                    currentSessionName = sessionNameInput.value.trim();
+                    updateSessionNameBadge();
+                    
+                    // Clear previous emotion logs
+                    emotionLogs = [];
+                    
+                    stream = await navigator.mediaDevices.getUserMedia({ 
+                        video: {
+                            width: { ideal: 1280 },
+                            height: { ideal: 720 },
+                            facingMode: 'user'
+                        } 
+                    });
+                    
+                    video.srcObject = stream;
+                    video.onloadedmetadata = function() {
+                        videoWidth = video.videoWidth;
+                        videoHeight = video.videoHeight;
+                        setCanvasSize();
+                        video.play();
+                    };
+                    
+                    // Update capture interval from input
+                    captureInterval = parseInt(captureIntervalInput.value) || 5;
+                    
+                    // Enable buttons
+                    startBtn.disabled = true;
+                    startBtn.classList.add('button-disabled');
+                    startBtn.classList.remove('button-enabled');
+                    
+                    pauseBtn.disabled = false;
+                    pauseBtn.classList.add('button-enabled');
+                    pauseBtn.classList.remove('button-disabled');
+                    
+                    stopBtn.disabled = false;
+                    stopBtn.classList.add('button-enabled');
+                    stopBtn.classList.remove('button-disabled');
+                    
+                    // Update download button state
+                    updateDownloadButtonState();
+                    
+                    statusIndicator.textContent = 'Active';
+                    statusIndicator.className = 'absolute top-2 right-2 px-2 py-1 rounded-full text-xs font-semibold bg-green-600 text-white';
+                    
+                    // Clear logs and add new entry
+                    logContainer.innerHTML = '';
+                    addLogEntry('Webcam started successfully', 'success');
+                    addLogEntry(`Session name: ${currentSessionName || 'Unnamed Session'}`, 'info');
+                    
+                    // Start animation loop
+                    function drawVideoFrame() {
+                        if (!isPaused && videoWidth && videoHeight) {
+                            // Clear canvas
+                            ctx.clearRect(0, 0, canvas.width, canvas.height);
+                            
+                            // Calculate centered position
+                            const x = (canvas.width - videoWidth * (canvas.height / videoHeight)) / 2;
+                            
+                            // Draw video frame centered and maintaining aspect ratio
+                            ctx.drawImage(
+                                video, 
+                                0, 0, videoWidth, videoHeight,
+                                x, 0, 
+                                videoWidth * (canvas.height / videoHeight), 
+                                canvas.height
+                            );
+                        }
+                        animationId = requestAnimationFrame(drawVideoFrame);
+                    }
+                    
+                    drawVideoFrame();
+                    
+                    // Start automatic capture
+                    startCountdown();
+                    
+                } catch (err) {
+                    console.error('Error accessing webcam:', err);
+                    statusIndicator.textContent = 'Error';
+                    statusIndicator.className = 'absolute top-2 right-2 px-2 py-1 rounded-full text-xs font-semibold bg-red-600 text-white';
+                    
+                    // Reset buttons
+                    startBtn.disabled = false;
+                    startBtn.classList.add('button-enabled');
+                    startBtn.classList.remove('button-disabled');
+                    
+                    // Add error log
+                    addLogEntry(`Webcam error: ${err.message}`, 'error');
+                    
+                    // Show error message
+                    ctx.fillStyle = '#fee2e2';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    ctx.fillStyle = '#dc2626';
+                    ctx.font = 'bold 20px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText('Webcam access denied', canvas.width / 2, canvas.height / 2 - 30);
+                    ctx.fillText('Please allow camera permissions', canvas.width / 2, canvas.height / 2 + 10);
+                    ctx.font = '16px Arial';
+                    ctx.fillText('Then click Start to try again', canvas.width / 2, canvas.height / 2 + 50);
+                }
+            });
+            
+            // Pause webcam
+            pauseBtn.addEventListener('click', function() {
+                if (isPaused) {
+                    // Resume
+                    isPaused = false;
+                    pauseBtn.innerHTML = '<i class="fas fa-pause"></i><span>Pause</span>';
+                    statusIndicator.textContent = 'Active';
+                    statusIndicator.className = 'absolute top-2 right-2 px-2 py-1 rounded-full text-xs font-semibold bg-green-600 text-white';
+                    pauseBtn.classList.remove('bg-gray-500');
+                    pauseBtn.classList.add('bg-yellow-500');
+                    
+                    addLogEntry('Webcam resumed', 'info');
+                    
+                    // Resume countdown if not capturing
+                    if (!isCapturing) {
+                        startCountdown();
+                    }
+                } else {
+                    // Pause
+                    isPaused = true;
+                    pauseBtn.innerHTML = '<i class="fas fa-play"></i><span>Resume</span>';
+                    statusIndicator.textContent = 'Paused';
+                    statusIndicator.className = 'absolute top-2 right-2 px-2 py-1 rounded-full text-xs font-semibold bg-yellow-600 text-white';
+                    pauseBtn.classList.remove('bg-yellow-500');
+                    pauseBtn.classList.add('bg-gray-500');
+                    
+                    addLogEntry('Webcam paused', 'info');
+                    
+                    // Pause countdown
+                    clearInterval(countdownTimer);
+                    apiStatusElement.textContent = "Paused";
+                }
+                
+                // Update download button state
+                updateDownloadButtonState();
+            });
+            
+            // Stop webcam
+            stopBtn.addEventListener('click', function() {
+                if (animationId) {
+                    cancelAnimationFrame(animationId);
+                    animationId = null;
+                }
+                
+                // Clear timers
+                clearInterval(captureTimer);
+                clearInterval(countdownTimer);
+                
+                if (stream) {
+                    stream.getTracks().forEach(track => track.stop());
+                    stream = null;
+                    video.srcObject = null;
+                    videoWidth = 0;
+                    videoHeight = 0;
+                }
+                
+                // Reset buttons
+                startBtn.disabled = false;
+                startBtn.classList.add('button-enabled');
+                startBtn.classList.remove('button-disabled');
+                
+                pauseBtn.disabled = true;
+                pauseBtn.classList.add('button-disabled');
+                pauseBtn.classList.remove('button-enabled');
+                pauseBtn.innerHTML = '<i class="fas fa-pause"></i><span>Pause</span>';
+                pauseBtn.classList.remove('bg-gray-500');
+                pauseBtn.classList.add('bg-yellow-500');
+                
+                stopBtn.disabled = true;
+                stopBtn.classList.add('button-disabled');
+                stopBtn.classList.remove('button-enabled');
+                
+                statusIndicator.textContent = 'Ready';
+                statusIndicator.className = 'absolute top-2 right-2 px-2 py-1 rounded-full text-xs font-semibold bg-gray-800 text-white';
+                
+                isPaused = false;
+                isCapturing = false;
+                
+                // Reset progress bar
+                captureProgress.style.width = '0%';
+                apiStatusElement.textContent = "Next capture in: 5s";
+                
+                // Add log entry
+                addLogEntry('Webcam stopped', 'info');
+                
+                // Update download button state
+                updateDownloadButtonState();
+                
+                // Draw thumbnail
+                setCanvasSize();
+                drawThumbnail();
+            });
+            
+            // Update capture interval when input changes
+            captureIntervalInput.addEventListener('change', function() {
+                if (!stream || isPaused) return;
+                
+                const newInterval = parseInt(this.value) || 5;
+                if (newInterval !== captureInterval) {
+                    captureInterval = newInterval;
+                    addLogEntry(`Capture interval changed to ${newInterval} seconds`, 'info');
+                    
+                    // Restart countdown with new interval
+                    clearInterval(countdownTimer);
+                    startCountdown();
+                }
+            });
+            
+            // Add button active states
+            [startBtn, pauseBtn, stopBtn, downloadBtn, settingsBtn].forEach(btn => {
+                btn.addEventListener('mousedown', function() {
+                    if (!this.disabled) {
+                        this.classList.add('button-active');
+                    }
+                });
+                
+                btn.addEventListener('mouseup', function() {
+                    this.classList.remove('button-active');
+                });
+                
+                btn.addEventListener('mouseleave', function() {
+                    this.classList.remove('button-active');
+                });
+            });
+        });
+    </script>
+</body>
+
+</html>
